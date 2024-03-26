@@ -1,77 +1,261 @@
-extensions [gis]
-globals [area]
-breed [nodes node]
+globals [
+  expressway-ycor
+  street-ycor
+  traffic-light-timer
+  traffic-light-state
+  red-light-duration
+  green-light-duration
+  speed-min
+  global-emissions
+  cars-remaining
+  car-spawnpoints
+  cumulative-expressway-traffic
+  cumulative-street-traffic
+]
+
 breed [cars car]
-cars-own [clocation]
+cars-own [myspeed emissions go-expressway?]
+breed [traffic-lights traffic-light]
 
 to setup
-  ca
-  gis:load-coordinate-system "CroppedRoadNetwork.prj"
-  set area gis:load-dataset "CroppedRoadNetwork.shp"
+  clear-all
+  reset-ticks
 
-  gis:set-drawing-color white
-  gis:draw area 1
+  set speed-min 0
 
-  make-road-network
-  add-agents
+  resize-world 0 100 -10 10
+  set-patch-size 6
+
+  set expressway-ycor n-values 3 [i -> i + 3]
+  set street-ycor n-values 3 [i -> i - 5]
+  set red-light-duration light-duration
+  set green-light-duration light-duration
+  set cars-remaining num-cars
+
+  setup-expressway
+  setup-street
+  setup-traffic-lights
+  setup-points
+  price-sensitive-spawning
 end
 
-to make-road-network
-  clear-links
-  let first-node nobody
-  let previous-node nobody
-  foreach gis:feature-list-of area [ [feature-list] ->
-    foreach gis:vertex-lists-of feature-list [ [coordinate-pair] ->
-      foreach coordinate-pair [ [coordinate] ->
-        let location gis:location-of coordinate
-        if not empty? location [
-          create-nodes 1 [
-            set color green
-            set size 1
-            set xcor item 0 location
-            set ycor item 1 location
-            set hidden? true
-            if first-node = nobody [
-              set first-node self
-            ]
-            if previous-node != nobody [
-              create-link-with previous-node
-            ]
-            set previous-node self
-          ]
-        ]
-      ]
-      set previous-node nobody
+to setup-expressway
+  ask patches with [member? pycor expressway-ycor and pxcor <= min-pxcor + expressway-distance] [
+    set pcolor blue
+  ]
+end
+
+to setup-street
+  let street-patches patches with [member? pycor street-ycor and pxcor <= min-pxcor + street-distance]
+  ask street-patches [
+    set pcolor gray
+  ]
+end
+
+to setup-traffic-lights
+  ask patches with [pxcor = street-distance - 3 and abs(pycor + 4) <= 1] [
+    sprout-traffic-lights 1 [
+      set color red
+      set shape "circle"
     ]
   ]
-  ask nodes [create-links-with other nodes in-radius 0.1]
 end
 
-to add-agents
-  create-cars 100 [
-    set shape "car"
-    set color red
-    set clocation one-of nodes
-    move-to clocation
+to setup-points
+  ask patches with [pcolor != black and (pxcor = min-pxcor or ((pxcor = expressway-distance and member? pycor expressway-ycor) or (pxcor = street-distance and member? pycor  street-ycor)))] [
+    set pcolor red
+  ]
+end
+
+to price-sensitive-spawning
+  let expressway-spawnpoint patches with [pcolor = red and pxcor = min-pxcor and pycor > 0]
+  let street-spawnpoint patches with [pcolor = red and pxcor = min-pxcor and pycor < 0]
+
+  let probability random-float 1
+  let adjusted-probability (0.5 * erp-price / 6) + 0.5 * probability
+  print adjusted-probability
+
+  ifelse adjusted-probability < 0.5 [
+    while [cars-remaining > 0 and (count patches with [pcolor = red and pxcor = min-pxcor and pycor > 0 and not any? cars-here] > 0)] [
+      ifelse cars-remaining < count patches with [pcolor = red and pxcor = min-pxcor and pycor > 0] [
+        ask one-of expressway-spawnpoint [
+          spawn-car self
+        ]
+        set cars-remaining (cars-remaining - 1)
+        set cumulative-expressway-traffic cumulative-expressway-traffic + 1
+      ] [
+        ask expressway-spawnpoint [
+          spawn-car self
+        ]
+        set cars-remaining (cars-remaining - 3)
+        set cumulative-expressway-traffic cumulative-expressway-traffic + 3
+      ]
+    ]
+  ] [
+    while [cars-remaining > 0 and (count patches with [pcolor = red and pxcor = min-pxcor and pycor < 0 and not any? cars-here] > 0)] [
+      ifelse cars-remaining < count patches with [pcolor = red and pxcor = min-pxcor and pycor < 0] [
+        ask one-of street-spawnpoint [
+          spawn-car self
+        ]
+        set cars-remaining (cars-remaining - 1)
+        set cumulative-street-traffic cumulative-street-traffic + 1
+      ] [
+        ask street-spawnpoint [
+          spawn-car self
+        ]
+        set cars-remaining (cars-remaining - 3)
+        set cumulative-street-traffic cumulative-street-traffic + 3
+      ]
+    ]
+  ]
+end
+
+to spawn-car [target-patch]
+  ask target-patch [
+    sprout-cars 1 [
+      set color violet
+      set shape "car"
+      set heading 90
+    ]
   ]
 end
 
 to go
-  ask cars [
-    let new-location one-of [link-neighbors] of clocation
-    move-to new-location
-    set clocation new-location
+  ask traffic-lights [
+    if color = red [
+      set red-light-duration red-light-duration - 1
+      if red-light-duration = 0 [
+        set color green
+        set red-light-duration light-duration
+      ]
+    ]
+    if color = green [
+      set green-light-duration green-light-duration - 1
+      if green-light-duration = 0 [
+        set color red
+        set green-light-duration light-duration
+      ]
+    ]
   ]
+
+  ask cars [
+    ifelse any? traffic-lights-on patch-ahead 1 [
+      let ahead-light one-of traffic-lights-on patch-ahead 1
+      ifelse [color] of ahead-light = red [
+        set myspeed 0
+        stop
+      ] [
+        ; Allow cars to proceed if no red light
+        ifelse [pcolor] of patch-here = blue or [pcolor] of patch-ahead 1 = blue [
+          let car-ahead one-of cars-on patch-ahead 1
+          ifelse car-ahead != nobody
+          [ slow-down-car car-ahead ]
+          [ speed-up-car ] ;; otherwise, speed up
+          ;; don't slow down below speed minimum or speed up beyond speed limit
+          if myspeed < speed-min [ set myspeed speed-min ]
+          if myspeed > expressway-speedlimit [ set myspeed expressway-speedlimit ]
+
+          if pxcor >= expressway-distance [
+            die
+            stop
+          ]
+        ] [
+          ifelse [pcolor] of patch-here = gray or [pcolor] of patch-ahead 1 = gray [
+            let car-ahead one-of cars-on patch-ahead 1
+            ifelse car-ahead != nobody
+            [ slow-down-car car-ahead ]
+            [ speed-up-car ] ;; otherwise, speed up
+                             ;; don't slow down below speed minimum or speed up beyond speed limit
+            if myspeed < speed-min [ set myspeed speed-min ]
+            if myspeed > street-speedlimit [ set myspeed street-speedlimit ]
+            if pxcor >= street-distance [
+              die
+              stop
+            ]
+          ] [
+            die
+            stop
+          ]
+        ]
+        let distance-to-move myspeed / 60
+        fd distance-to-move
+      ]
+    ] [
+      ; Allow cars to proceed if no traffic light
+      ifelse [pcolor] of patch-here = blue or [pcolor] of patch-ahead 1 = blue [
+        let car-ahead one-of cars-on patch-ahead 1
+          ifelse car-ahead != nobody
+          [ slow-down-car car-ahead ]
+          [ speed-up-car ] ;; otherwise, speed up
+          ;; don't slow down below speed minimum or speed up beyond speed limit
+          if myspeed < speed-min [ set myspeed speed-min ]
+          if myspeed > expressway-speedlimit [ set myspeed expressway-speedlimit ]
+
+          if pxcor >= expressway-distance [
+            die
+            stop
+          ]
+      ] [
+        ifelse [pcolor] of patch-here = gray or [pcolor] of patch-ahead 1 = gray [
+          let car-ahead one-of cars-on patch-ahead 1
+            ifelse car-ahead != nobody
+            [ slow-down-car car-ahead ]
+            [ speed-up-car ] ;; otherwise, speed up
+                             ;; don't slow down below speed minimum or speed up beyond speed limit
+            if myspeed < speed-min [ set myspeed speed-min ]
+            if myspeed > street-speedlimit [ set myspeed street-speedlimit ]
+            if pxcor >= street-distance [
+              die
+              stop
+            ]
+        ] [
+          die
+          stop
+        ]
+      ]
+      let distance-to-move myspeed / 60
+      fd distance-to-move
+    ]
+    set emissions petrol-emission-rate * myspeed * acceleration
+    set global-emissions global-emissions + emissions
+  ]
+
+  price-sensitive-spawning
+
+  if remaining-spawns = 0 [stop]
+
+  tick
+end
+
+to slow-down-car [ car-ahead ] ;; turtle procedure
+  ;; slow down so you are driving more slowly than the car ahead of you
+  set myspeed [ myspeed ] of car-ahead - deceleration
+end
+
+to speed-up-car ;; turtle procedure
+  set myspeed myspeed + acceleration
+end
+
+to-report remaining-spawns
+  report cars-remaining
+end
+
+to-report cars-on-expressway
+  report cumulative-expressway-traffic
+end
+
+to-report cars-on-street
+  report cumulative-street-traffic
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-210
-10
-857
-658
+277
+17
+891
+152
 -1
 -1
-19.364
+6.0
 1
 10
 1
@@ -81,10 +265,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--16
-16
--16
-16
+0
+100
+-10
+10
 0
 0
 1
@@ -92,10 +276,10 @@ ticks
 30.0
 
 BUTTON
-31
-54
-97
+21
+69
 87
+102
 NIL
 setup
 NIL
@@ -109,10 +293,10 @@ NIL
 1
 
 BUTTON
-64
-134
-127
-167
+22
+112
+85
+145
 NIL
 go
 NIL
@@ -126,10 +310,10 @@ NIL
 1
 
 BUTTON
-88
-363
-151
-396
+97
+112
+160
+145
 NIL
 go
 T
@@ -141,6 +325,234 @@ NIL
 NIL
 NIL
 1
+
+SLIDER
+15
+199
+221
+232
+expressway-distance
+expressway-distance
+1
+100
+24.0
+1
+1
+km
+HORIZONTAL
+
+SLIDER
+15
+248
+187
+281
+street-distance
+street-distance
+1
+100
+22.0
+1
+1
+km
+HORIZONTAL
+
+SLIDER
+15
+296
+187
+329
+num-cars
+num-cars
+1
+1000
+236.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+14
+342
+247
+375
+expressway-speedlimit
+expressway-speedlimit
+0
+140
+80.0
+1
+1
+km/h
+HORIZONTAL
+
+SLIDER
+14
+387
+210
+420
+street-speedlimit
+street-speedlimit
+0
+100
+50.0
+1
+1
+km/h
+HORIZONTAL
+
+SLIDER
+18
+429
+190
+462
+light-duration
+light-duration
+1
+20
+17.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+297
+201
+469
+234
+petrol-emission-rate
+petrol-emission-rate
+0
+1
+0.1
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+300
+245
+474
+278
+electric-emission-rate
+electric-emission-rate
+0
+1
+0.05
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+300
+290
+472
+323
+acceleration
+acceleration
+0
+100
+50.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+299
+337
+471
+370
+deceleration
+deceleration
+0
+100
+50.0
+1
+1
+NIL
+HORIZONTAL
+
+MONITOR
+578
+221
+683
+266
+NIL
+global-emissions
+17
+1
+11
+
+MONITOR
+577
+277
+691
+322
+NIL
+remaining-spawns
+17
+1
+11
+
+MONITOR
+578
+160
+720
+205
+NIL
+cars-on-expressway
+17
+1
+11
+
+MONITOR
+730
+159
+835
+204
+NIL
+cars-on-street
+17
+1
+11
+
+PLOT
+702
+221
+902
+371
+Traffic Flow
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"expressway" 1.0 0 -13345367 true "" "plot cars-on-expressway"
+"street" 1.0 0 -7500403 true "" "plot cars-on-street"
+
+SLIDER
+298
+382
+470
+415
+erp-price
+erp-price
+0
+6
+0.0
+1
+1
+$
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -500,17 +912,6 @@ true
 0
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
-
-road
-0.0
--0.2 1 1.0 0.0
-0.0 1 4.0 4.0
-0.2 1 1.0 0.0
-link direction
-true
-0
-Line -7500403 true 150 150 135 180
-Line -7500403 true 150 150 165 180
 @#$#@#$#@
 0
 @#$#@#$#@

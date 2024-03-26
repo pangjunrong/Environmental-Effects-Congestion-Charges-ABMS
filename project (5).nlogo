@@ -11,6 +11,11 @@ globals [
   car-spawnpoints
   cumulative-expressway-traffic
   cumulative-street-traffic
+  expressway-history
+  last-average-speed-expressway
+  last-average-speed-street
+  cumulative-weighted-average-speed-expressway-history
+  cumulative-weighted-average-speed-street-history
 ]
 
 breed [cars car]
@@ -31,6 +36,9 @@ to setup
   set red-light-duration light-duration
   set green-light-duration light-duration
   set cars-remaining num-cars
+  set expressway-history []
+  set cumulative-weighted-average-speed-expressway-history []
+  set cumulative-weighted-average-speed-street-history []
 
   setup-expressway
   setup-street
@@ -73,7 +81,6 @@ to price-sensitive-spawning
 
   let probability random-float 1
   let adjusted-probability (0.5 * erp-price / 6) + 0.5 * probability
-  print adjusted-probability
 
   ifelse adjusted-probability < 0.5 [
     while [cars-remaining > 0 and (count patches with [pcolor = red and pxcor = min-pxcor and pycor > 0 and not any? cars-here] > 0)] [
@@ -222,18 +229,33 @@ to go
 
   price-sensitive-spawning
 
-  if remaining-spawns = 0 [stop]
+  if remaining-spawns = 0 and count cars = 0 [stop]
 
+  set cumulative-weighted-average-speed-expressway-history lput average-speed-expressway cumulative-weighted-average-speed-expressway-history
+  set cumulative-weighted-average-speed-street-history lput average-speed-street cumulative-weighted-average-speed-street-history
   tick
 end
 
 to slow-down-car [ car-ahead ] ;; turtle procedure
-  ;; slow down so you are driving more slowly than the car ahead of you
-  set myspeed [ myspeed ] of car-ahead - deceleration
+  ;; slow down so you are driving more slowly than the car ahead of you, allow speed to vary up to -20%
+  let percentage 0.2
+  let variation percentage * deceleration
+  let random-varying-deceleration (random-float 1) * variation
+  set myspeed [ myspeed ] of car-ahead - random-varying-deceleration
 end
 
 to speed-up-car ;; turtle procedure
-  set myspeed myspeed + acceleration
+  ;; allow speed to increase with variation of 20%
+  if pcolor = red and pycor > 0 [
+    set myspeed expressway-speedlimit
+  ]
+  if pcolor = red and pycor < 0 [
+    set myspeed street-speedlimit
+  ]
+  let percentage 0.2
+  let variation percentage * acceleration
+  let random-factor (random-float 1) * variation
+  set myspeed myspeed + random-factor
 end
 
 to-report remaining-spawns
@@ -246,6 +268,58 @@ end
 
 to-report cars-on-street
   report cumulative-street-traffic
+end
+
+to-report average-speed-expressway
+  let total-cars 0
+  let total-speed 0
+
+  ask patches with [pcolor = blue] [
+    if any? cars-here [
+      set total-speed total-speed + sum [myspeed] of cars-here
+      set total-cars total-cars + count cars-here
+    ]
+  ]
+  ifelse total-cars > 0 [
+    set last-average-speed-expressway total-speed / total-cars
+    report total-speed / total-cars
+  ] [
+    report last-average-speed-expressway
+  ]
+end
+
+to-report average-speed-street
+  let total-cars 0
+  let total-speed 0
+
+  ask patches with [pcolor = gray] [
+    if any? cars-here [
+      set total-speed total-speed + sum [myspeed] of cars-here
+      set total-cars total-cars + count cars-here
+    ]
+  ]
+  ifelse total-cars > 0 [
+    set last-average-speed-street total-speed / total-cars
+    report total-speed / total-cars
+  ] [
+    report last-average-speed-street
+  ]
+end
+
+to-report cumulative-weighted-average-speed-expressway
+  if cumulative-weighted-average-speed-expressway-history = 0 [
+    report 0
+  ]
+  let rolling-average mean cumulative-weighted-average-speed-expressway-history
+  report rolling-average
+end
+
+to-report cumulative-weighted-average-speed-street
+  if cumulative-weighted-average-speed-street-history = 0 [
+    report 0
+  ]
+  let rolling-average mean cumulative-weighted-average-speed-street-history
+  report rolling-average
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -365,7 +439,7 @@ num-cars
 num-cars
 1
 1000
-236.0
+1000.0
 1
 1
 NIL
@@ -548,11 +622,74 @@ erp-price
 erp-price
 0
 6
-0.0
+3.0
 1
 1
 $
 HORIZONTAL
+
+MONITOR
+575
+382
+810
+427
+Current Average Speed: Expressway
+average-speed-expressway
+2
+1
+11
+
+MONITOR
+575
+437
+773
+482
+Current Average Speed: Street
+average-speed-street
+2
+1
+11
+
+PLOT
+916
+221
+1116
+371
+Average Speed
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"Expressway" 1.0 0 -13345367 true "" "plot average-speed-expressway"
+"Street" 1.0 0 -7500403 true "" "plot average-speed-street"
+
+MONITOR
+918
+381
+1147
+426
+Rolling Average Speed: Expressway
+cumulative-weighted-average-speed-expressway
+2
+1
+11
+
+MONITOR
+918
+442
+1111
+487
+Rolling Average Speed: Street
+cumulative-weighted-average-speed-street
+2
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?

@@ -264,6 +264,7 @@ to go
       ]
       let distance-to-move myspeed / 60
       fd distance-to-move
+      set distance-travelled distance-travelled + distance-to-move
     ]
     let adjusted-consumption (6.7 / 100) * distance-travelled
     let fuel-factor 1 + acceleration-factor

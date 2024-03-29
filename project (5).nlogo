@@ -170,6 +170,7 @@ to go
   ]
 
   ask cars [
+    set distance-travelled 0
     ifelse any? traffic-lights-on patch-ahead 1 [
       let ahead-light one-of traffic-lights-on patch-ahead 1
       ifelse [color] of ahead-light = red [
@@ -266,9 +267,9 @@ to go
       fd distance-to-move
       set distance-travelled distance-travelled + distance-to-move
     ]
-    let adjusted-consumption (6.7 / 100) * distance-travelled
-    let fuel-factor 1 + acceleration-factor
-    set emissions adjusted-consumption * fuel-factor
+    let adjusted-consumption (8.42 / 100) * distance-travelled
+    set emissions adjusted-consumption * 2.3 * (1 / 1000)
+    set emissions emissions * (1 + (acceleration * acceleration-factor))
     set global-emissions global-emissions + emissions
   ]
 
@@ -578,14 +579,14 @@ HORIZONTAL
 SLIDER
 922
 293
-1097
+1096
 326
 acceleration-factor
 acceleration-factor
 0
-1
-0.5
-0.05
+0.1
+0.04
+0.01
 1
 NIL
 HORIZONTAL
@@ -814,7 +815,7 @@ CHOOSER
 decision-strategy
 decision-strategy
 "empirical distribution" "proportional probability" "fictitious play"
-0
+1
 
 SLIDER
 12

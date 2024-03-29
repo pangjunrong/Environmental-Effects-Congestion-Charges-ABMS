@@ -89,7 +89,14 @@ to price-sensitive-spawning
 
   ; Default Strategy: Proportional Probability
   let probability random-float 1
-  let adjusted-probability (erp-price / 6) * 0.90 + 0.05
+  let adjusted-probability (erp-price / 6)
+  if adjusted-probability = 0 [
+    set adjusted-probability 0.05
+  ]
+  if adjusted-probability = 1 [
+    set adjusted-prob
+  ]
+  print adjusted-probability
   let decision random-float 1 > adjusted-probability
 
   if decision-strategy = "fictitious play" [
@@ -666,7 +673,7 @@ erp-price
 erp-price
 0
 6
-6.0
+1.0
 1
 1
 $

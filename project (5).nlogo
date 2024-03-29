@@ -1,26 +1,23 @@
 globals [
   expressway-ycor
   street-ycor
-  traffic-light-timer
-  traffic-light-state
-  red-light-duration
-  green-light-duration
   speed-min
   global-emissions
   cars-remaining
   car-spawnpoints
   cumulative-expressway-traffic
   cumulative-street-traffic
-  expressway-history
   last-average-speed-expressway
   last-average-speed-street
   cumulative-weighted-average-speed-expressway-history
   cumulative-weighted-average-speed-street-history
+  historical-distn
 ]
 
 breed [cars car]
-cars-own [myspeed emissions go-expressway? distance-travelled]
+cars-own [myspeed emissions go-expressway? cartype exit-early? distance-travelled]
 breed [traffic-lights traffic-light]
+traffic-lights-own [red-light-duration green-light-duration]
 
 to setup
   clear-all
@@ -28,15 +25,12 @@ to setup
 
   set speed-min 0
 
-  resize-world 0 100 -10 10
-  set-patch-size 6
+  resize-world 0 50 -10 10
+  set-patch-size 12
 
   set expressway-ycor n-values 3 [i -> i + 3]
   set street-ycor n-values 3 [i -> i - 5]
-  set red-light-duration light-duration
-  set green-light-duration light-duration
   set cars-remaining num-cars
-  set expressway-history []
   set cumulative-weighted-average-speed-expressway-history []
   set cumulative-weighted-average-speed-street-history []
 
@@ -61,10 +55,24 @@ to setup-street
 end
 
 to setup-traffic-lights
-  ask patches with [pxcor = street-distance - 3 and abs(pycor + 4) <= 1] [
-    sprout-traffic-lights 1 [
-      set color red
-      set shape "circle"
+  let placement-history []
+  repeat num-traffic-lights [
+    let traffic-light-location (random (street-distance - 1)) + 1
+    while [member? traffic-light-location placement-history] [
+      set traffic-light-location random (street-distance - 1) + 1
+    ]
+    set placement-history lput traffic-light-location placement-history
+    let target-patches patches with [pxcor = traffic-light-location and pcolor = gray]
+    if any? target-patches with [ not any? traffic-lights-here ] [
+      let col-color ifelse-value (random-float 1 < 0.5) [red] [green]
+      ask target-patches [
+        sprout-traffic-lights 1 [
+          set color col-color
+          set shape "circle"
+          set red-light-duration light-duration
+          set green-light-duration light-duration * 3
+        ]
+      ]
     ]
   ]
 end
@@ -79,10 +87,25 @@ to price-sensitive-spawning
   let expressway-spawnpoint patches with [pcolor = red and pxcor = min-pxcor and pycor > 0]
   let street-spawnpoint patches with [pcolor = red and pxcor = min-pxcor and pycor < 0]
 
+  ; Default Strategy: Proportional Probability
   let probability random-float 1
-  let adjusted-probability (0.5 * erp-price / 6) + 0.5 * probability
+  let adjusted-probability (erp-price / 6) * 0.90 + 0.05
+  let decision random-float 1 > adjusted-probability
 
-  ifelse adjusted-probability < 0.5 [
+  if decision-strategy = "fictitious play" [
+    ifelse ticks = 0 [
+      set decision true
+    ] [
+      set decision run-fictitious-play
+    ]
+  ]
+
+  if decision-strategy = "empirical distribution" [
+  ]
+
+
+
+  ifelse decision [
     while [cars-remaining > 0 and (count patches with [pcolor = red and pxcor = min-pxcor and pycor > 0 and not any? cars-here] > 0)] [
       ifelse cars-remaining < count patches with [pcolor = red and pxcor = min-pxcor and pycor > 0] [
         ask one-of expressway-spawnpoint [
@@ -123,24 +146,25 @@ to spawn-car [target-patch]
       set color violet
       set shape "car"
       set heading 90
+      set exit-early? false
     ]
   ]
 end
 
 to go
+
   ask traffic-lights [
-    if color = red [
+    ifelse color = red [
       set red-light-duration red-light-duration - 1
       if red-light-duration = 0 [
         set color green
         set red-light-duration light-duration
       ]
-    ]
-    if color = green [
+    ] [
       set green-light-duration green-light-duration - 1
       if green-light-duration = 0 [
         set color red
-        set green-light-duration light-duration
+        set green-light-duration light-duration * 3
       ]
     ]
   ]
@@ -154,6 +178,13 @@ to go
       ] [
         ; Allow cars to proceed if no red light
         ifelse [pcolor] of patch-here = blue or [pcolor] of patch-ahead 1 = blue [
+          ifelse exit-early? [
+            die
+          ] [
+            if random-float 1 < 0.01 [
+              set exit-early? true
+            ]
+          ]
           let car-ahead one-of cars-on patch-ahead 1
           ifelse car-ahead != nobody
           [ slow-down-car car-ahead ]
@@ -168,13 +199,23 @@ to go
           ]
         ] [
           ifelse [pcolor] of patch-here = gray or [pcolor] of patch-ahead 1 = gray [
+            ifelse exit-early? [
+              die
+            ] [
+              if random-float 1 < 0.05 [
+                set exit-early? true
+              ]
+            ]
             let car-ahead one-of cars-on patch-ahead 1
             ifelse car-ahead != nobody
             [ slow-down-car car-ahead ]
             [ speed-up-car ] ;; otherwise, speed up
                              ;; don't slow down below speed minimum or speed up beyond speed limit
             if myspeed < speed-min [ set myspeed speed-min ]
-            if myspeed > street-speedlimit [ set myspeed street-speedlimit ]
+            if myspeed > street-speedlimit [
+              let max-cruising-random-factor myspeed * (0.10 * (random-float 2 - 1))
+              set myspeed street-speedlimit + max-cruising-random-factor
+            ]
             if pxcor >= street-distance [
               die
               stop
@@ -262,6 +303,31 @@ to speed-up-car ;; turtle procedure
   set myspeed myspeed + random-factor
 end
 
+to-report run-fictitious-play
+  let old-historical-distn historical-distn
+  let history-list cumulative-weighted-average-speed-expressway-history
+  let cumulative-weight 0
+  if length cumulative-weighted-average-speed-expressway-history > 10 [
+    set history-list (sublist cumulative-weighted-average-speed-expressway-history (length cumulative-weighted-average-speed-expressway-history - 10) (length cumulative-weighted-average-speed-expressway-history))
+  ]
+  foreach history-list [observation ->
+    let utility-street ifelse-value average-speed-street = 0 [50] [average-speed-street]
+
+    if observation > (utility-street + (fp-price-sensitivity * 30 * (erp-price / 6))) [
+      set cumulative-weight (cumulative-weight + 1)
+    ]
+  ]
+  set historical-distn cumulative-weight / (length history-list)
+  ifelse random-float 1 < historical-distn [
+    report true
+  ] [
+    report false
+  ]
+end
+
+to update-history
+end
+
 to-report remaining-spawns
   report cars-remaining
 end
@@ -327,13 +393,13 @@ to-report cumulative-weighted-average-speed-street
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-277
-17
-891
-152
+267
+128
+887
+389
 -1
 -1
-6.0
+12.0
 1
 10
 1
@@ -344,7 +410,7 @@ GRAPHICS-WINDOW
 1
 1
 0
-100
+50
 -10
 10
 0
@@ -354,10 +420,10 @@ ticks
 30.0
 
 BUTTON
-21
-69
-87
-102
+267
+72
+419
+112
 NIL
 setup
 NIL
@@ -371,11 +437,11 @@ NIL
 1
 
 BUTTON
-22
-112
-85
-145
-NIL
+498
+71
+649
+111
+Advance 1 Min
 go
 NIL
 1
@@ -388,11 +454,11 @@ NIL
 1
 
 BUTTON
-97
-112
-160
-145
-NIL
+720
+72
+883
+110
+Run Entire Simulation
 go
 T
 1
@@ -405,14 +471,14 @@ NIL
 1
 
 SLIDER
-15
-199
-221
-232
+11
+131
+217
+164
 expressway-distance
 expressway-distance
 1
-100
+50
 24.0
 1
 1
@@ -420,25 +486,25 @@ km
 HORIZONTAL
 
 SLIDER
-15
-248
-187
-281
+11
+171
+218
+204
 street-distance
 street-distance
 1
-100
-22.0
+50
+26.0
 1
 1
 km
 HORIZONTAL
 
 SLIDER
-15
-296
-187
-329
+921
+128
+1093
+161
 num-cars
 num-cars
 1
@@ -450,10 +516,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-14
-342
-247
-375
+11
+213
+218
+246
 expressway-speedlimit
 expressway-speedlimit
 0
@@ -465,10 +531,10 @@ km/h
 HORIZONTAL
 
 SLIDER
-14
-387
-210
-420
+12
+254
+217
+287
 street-speedlimit
 street-speedlimit
 0
@@ -480,55 +546,55 @@ km/h
 HORIZONTAL
 
 SLIDER
-18
-429
-190
-462
-light-duration
-light-duration
-1
-20
-17.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
+13
 297
-201
-469
-234
+217
+330
+light-duration
+light-duration
+1
+3
+1.0
+1
+1
+min
+HORIZONTAL
+
+SLIDER
+922
+251
+1094
+284
 petrol-emission-rate
 petrol-emission-rate
 0
 1
-0.1
+0.06
 0.01
 1
 NIL
 HORIZONTAL
 
 SLIDER
-300
-245
-474
-278
+922
+293
+1097
+326
 acceleration-factor
 acceleration-factor
 0
 1
+0.5
 0.05
-0.01
 1
 NIL
 HORIZONTAL
 
 SLIDER
-300
-290
-472
-323
+921
+168
+1093
+201
 acceleration
 acceleration
 0
@@ -540,10 +606,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-299
-337
-471
-370
+922
+210
+1094
+243
 deceleration
 deceleration
 0
@@ -555,88 +621,69 @@ NIL
 HORIZONTAL
 
 MONITOR
-578
-221
-683
-266
-NIL
+608
+420
+758
+465
+CO2 Emissions (Tons)
 global-emissions
-17
+2
 1
 11
 
 MONITOR
-577
-277
-691
-322
-NIL
+767
+420
+894
+465
+Remaining Spawns
 remaining-spawns
 17
 1
 11
 
 MONITOR
-578
-160
-720
-205
-NIL
+608
+527
+770
+572
+No. of Cars: Expressway
 cars-on-expressway
 17
 1
 11
 
 MONITOR
-730
-159
-835
-204
-NIL
+608
+473
+733
+518
+No. of Cars: Street
 cars-on-street
 17
 1
 11
 
-PLOT
-702
-221
-902
-371
-Traffic Flow
-NIL
-NIL
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"expressway" 1.0 0 -13345367 true "" "plot cars-on-expressway"
-"street" 1.0 0 -7500403 true "" "plot cars-on-street"
-
 SLIDER
-298
-382
-470
-415
+12
+419
+218
+452
 erp-price
 erp-price
 0
 6
-3.0
+6.0
 1
 1
 $
 HORIZONTAL
 
 MONITOR
-575
-382
-810
-427
+910
+605
+1145
+650
 Current Average Speed: Expressway
 average-speed-expressway
 2
@@ -644,10 +691,10 @@ average-speed-expressway
 11
 
 MONITOR
-575
-437
-773
-482
+910
+658
+1146
+703
 Current Average Speed: Street
 average-speed-street
 2
@@ -655,10 +702,10 @@ average-speed-street
 11
 
 PLOT
-916
-221
-1116
-371
+272
+606
+599
+769
 Average Speed
 NIL
 NIL
@@ -667,17 +714,17 @@ NIL
 0.0
 10.0
 true
-false
+true
 "" ""
 PENS
 "Expressway" 1.0 0 -13345367 true "" "plot average-speed-expressway"
 "Street" 1.0 0 -7500403 true "" "plot average-speed-street"
 
 MONITOR
-918
-381
-1147
-426
+611
+607
+840
+652
 Rolling Average Speed: Expressway
 cumulative-weighted-average-speed-expressway
 2
@@ -685,15 +732,129 @@ cumulative-weighted-average-speed-expressway
 11
 
 MONITOR
-918
-442
-1111
-487
+611
+659
+840
+704
 Rolling Average Speed: Street
 cumulative-weighted-average-speed-street
 2
 1
 11
+
+TEXTBOX
+10
+99
+214
+118
+Environmental Factors
+16
+0.0
+1
+
+PLOT
+272
+420
+599
+593
+Traffic Flow
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"expressway" 1.0 0 -13345367 true "" "plot cars-on-expressway"
+"street" 1.0 0 -7500403 true "" "plot cars-on-street"
+
+TEXTBOX
+315
+10
+851
+38
+Environmental Effects of ERP Congestion Charges
+21
+0.0
+1
+
+TEXTBOX
+922
+95
+1072
+115
+Vehicle Settings
+16
+0.0
+1
+
+SLIDER
+13
+338
+217
+371
+num-traffic-lights
+num-traffic-lights
+1
+10
+1.0
+1
+1
+NIL
+HORIZONTAL
+
+CHOOSER
+922
+340
+1119
+385
+decision-strategy
+decision-strategy
+"empirical distribution" "proportional probability" "fictitious play"
+0
+
+SLIDER
+12
+378
+217
+411
+green-light-duration-multiplier
+green-light-duration-multiplier
+0
+5
+3.0
+1
+1
+x
+HORIZONTAL
+
+SLIDER
+922
+433
+1107
+466
+fp-price-sensitivity
+fp-price-sensitivity
+0
+4
+2.0
+0.1
+1
+x
+HORIZONTAL
+
+TEXTBOX
+922
+411
+1072
+429
+Fictitious Play Only
+12
+0.0
+1
 
 @#$#@#$#@
 ## WHAT IS IT?

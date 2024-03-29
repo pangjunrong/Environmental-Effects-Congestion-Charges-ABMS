@@ -304,17 +304,20 @@ end
 
 to-report run-fictitious-play
   let old-historical-distn historical-distn
+  let history-list cumulative-weighted-average-speed-expressway-history
   let cumulative-weight 0
-  foreach cumulative-weighted-average-speed-expressway-history [observation ->
+  if length cumulative-weighted-average-speed-expressway-history > 10 [
+    set history-list (sublist cumulative-weighted-average-speed-expressway-history (length cumulative-weighted-average-speed-expressway-history - 10) (length cumulative-weighted-average-speed-expressway-history))
+  ]
+  foreach history-list [observation ->
     let utility-street ifelse-value average-speed-street = 0 [50] [average-speed-street]
-    print utility-street + 2 * (30 * (erp-price / 6))
-    print observation
-    if observation > (utility-street + (30 * (erp-price / 6))) [
+
+    if observation > (utility-street + (fp-price-sensitivity * 30 * (erp-price / 6))) [
       set cumulative-weight (cumulative-weight + 1)
     ]
   ]
-  set historical-distn cumulative-weight / ticks
-  ifelse random-float 1 < (historical-distn - 0.05) [
+  set historical-distn cumulative-weight / (length history-list)
+  ifelse random-float 1 < historical-distn [
     report true
   ] [
     report false
@@ -474,7 +477,7 @@ SLIDER
 expressway-distance
 expressway-distance
 1
-100
+50
 24.0
 1
 1
@@ -489,7 +492,7 @@ SLIDER
 street-distance
 street-distance
 1
-100
+50
 26.0
 1
 1
@@ -778,9 +781,9 @@ Environmental Effects of ERP Congestion Charges
 1
 
 TEXTBOX
-950
+922
 95
-1100
+1072
 115
 Vehicle Settings
 16
@@ -809,8 +812,8 @@ CHOOSER
 385
 decision-strategy
 decision-strategy
-"proportional probability" "fictitious play" "empirical distribution"
-1
+"empirical distribution" "proportional probability" "fictitious play"
+0
 
 SLIDER
 12
@@ -826,6 +829,31 @@ green-light-duration-multiplier
 1
 x
 HORIZONTAL
+
+SLIDER
+922
+433
+1107
+466
+fp-price-sensitivity
+fp-price-sensitivity
+0
+4
+2.0
+0.1
+1
+x
+HORIZONTAL
+
+TEXTBOX
+922
+411
+1072
+429
+Fictitious Play Only
+12
+0.0
+1
 
 @#$#@#$#@
 ## WHAT IS IT?

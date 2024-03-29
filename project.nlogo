@@ -269,7 +269,7 @@ to go
     ]
     let adjusted-consumption (8.42 / 100) * distance-travelled
     set emissions adjusted-consumption * 2.3 * (1 / 1000)
-    set emissions emissions * (1 + (acceleration * acceleration-factor))
+    set emissions emissions * (1 + (acceleration / 60 * acceleration-factor))
     set global-emissions global-emissions + emissions
   ]
 

@@ -19,7 +19,7 @@ globals [
 ]
 
 breed [cars car]
-cars-own [myspeed emissions go-expressway?]
+cars-own [myspeed emissions go-expressway? distance-travelled]
 breed [traffic-lights traffic-light]
 
 to setup
@@ -186,6 +186,7 @@ to go
         ]
         let distance-to-move myspeed / 60
         fd distance-to-move
+        set distance-travelled distance-travelled + distance-to-move
       ]
     ] [
       ; Allow cars to proceed if no traffic light
@@ -222,8 +223,11 @@ to go
       ]
       let distance-to-move myspeed / 60
       fd distance-to-move
+      set distance-travelled distance-travelled + distance-to-move
     ]
-    set emissions petrol-emission-rate * myspeed * acceleration
+    let adjusted-consumption (6.7 / 100) * distance-travelled
+    let fuel-factor 1 + acceleration-factor
+    set emissions adjusted-consumption * fuel-factor
     set global-emissions global-emissions + emissions
   ]
 
@@ -510,8 +514,8 @@ SLIDER
 245
 474
 278
-electric-emission-rate
-electric-emission-rate
+acceleration-factor
+acceleration-factor
 0
 1
 0.05

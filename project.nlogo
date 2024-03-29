@@ -314,7 +314,8 @@ to-report run-fictitious-play
   foreach history-list [observation ->
     let utility-street ifelse-value average-speed-street = 0 [50] [average-speed-street]
 
-    if observation > (utility-street + (fp-price-sensitivity * 30 * (erp-price / 6))) [
+    ; based on data provided by government, each dollar increases speed by 7%
+    if observation > (utility-street * (fp-price-sensitivity * 1.07 * erp-price)) [
       set cumulative-weight (cumulative-weight + 1)
     ]
   ]
@@ -324,9 +325,6 @@ to-report run-fictitious-play
   ] [
     report false
   ]
-end
-
-to update-history
 end
 
 to-report remaining-spawns
@@ -579,7 +577,7 @@ HORIZONTAL
 SLIDER
 922
 293
-1096
+1095
 326
 acceleration-factor
 acceleration-factor
@@ -674,7 +672,7 @@ erp-price
 erp-price
 0
 6
-6.0
+1.0
 1
 1
 $
@@ -810,12 +808,12 @@ HORIZONTAL
 CHOOSER
 922
 340
-1119
+1094
 385
 decision-strategy
 decision-strategy
-"empirical distribution" "proportional probability" "fictitious play"
-1
+"fictitious play + empirical utility" "proportional probability"
+0
 
 SLIDER
 12

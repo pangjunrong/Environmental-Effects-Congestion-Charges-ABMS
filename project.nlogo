@@ -70,7 +70,7 @@ to setup-traffic-lights
           set color col-color
           set shape "circle"
           set red-light-duration light-duration
-          set green-light-duration light-duration * 3
+          set green-light-duration light-duration * green-light-duration-multiplier
         ]
       ]
     ]
@@ -87,23 +87,17 @@ to price-sensitive-spawning
   let expressway-spawnpoint patches with [pcolor = red and pxcor = min-pxcor and pycor > 0]
   let street-spawnpoint patches with [pcolor = red and pxcor = min-pxcor and pycor < 0]
 
-  ; Default Strategy: Proportional Probability
-  let probability random-float 1
-  let adjusted-probability (erp-price / 6) * 0.90 + 0.05
-  let decision random-float 1 > adjusted-probability
-
-  if decision-strategy = "fictitious play" [
-    ifelse ticks = 0 [
-      set decision true
-    ] [
-      set decision run-fictitious-play
-    ]
+  ; Default Strategy: fictitious
+  let decision true
+  if ticks != 0 [
+    set decision run-fictitious-play
   ]
 
-  if decision-strategy = "empirical distribution" [
+  if decision-strategy = "proportional probability" [
+    let probability random-float 1
+    let adjusted-probability (erp-price / 6) * 0.90 + 0.05
+    set decision random-float 1 > adjusted-probability
   ]
-
-
 
   ifelse decision [
     while [cars-remaining > 0 and (count patches with [pcolor = red and pxcor = min-pxcor and pycor > 0 and not any? cars-here] > 0)] [
@@ -164,7 +158,7 @@ to go
       set green-light-duration green-light-duration - 1
       if green-light-duration = 0 [
         set color red
-        set green-light-duration light-duration * 3
+        set green-light-duration light-duration * green-light-duration-multiplier
       ]
     ]
   ]
@@ -230,6 +224,13 @@ to go
         fd distance-to-move
         set distance-travelled distance-travelled + distance-to-move
       ]
+      let adjusted-consumption (8.42 / 100) * distance-travelled
+      set emissions adjusted-consumption * 2.3 * (1 / 1000)
+      set emissions emissions * (1 + (acceleration / 60 * acceleration-factor))
+      if myspeed = 0 [
+        set emissions emissions + 0.0001843142857
+      ]
+      set global-emissions global-emissions + emissions
     ] [
       ; Allow cars to proceed if no traffic light
       ifelse [pcolor] of patch-here = blue or [pcolor] of patch-ahead 1 = blue [
@@ -270,6 +271,9 @@ to go
     let adjusted-consumption (8.42 / 100) * distance-travelled
     set emissions adjusted-consumption * 2.3 * (1 / 1000)
     set emissions emissions * (1 + (acceleration / 60 * acceleration-factor))
+    if myspeed = 0 [
+      set emissions emissions + 0.0001843142857
+    ]
     set global-emissions global-emissions + emissions
   ]
 
@@ -313,9 +317,10 @@ to-report run-fictitious-play
   ]
   foreach history-list [observation ->
     let utility-street ifelse-value average-speed-street = 0 [50] [average-speed-street]
-
     ; based on data provided by government, each dollar increases speed by 7%
-    if observation > (utility-street * (fp-price-sensitivity * 1.07 * erp-price)) [
+    let formula fp-price-sensitivity * 1.07 * erp-price
+    if erp-price = 0 [set formula 1]
+    if observation > (utility-street * formula) [
       set cumulative-weight (cumulative-weight + 1)
     ]
   ]
@@ -799,7 +804,7 @@ num-traffic-lights
 num-traffic-lights
 1
 10
-1.0
+3.0
 1
 1
 NIL
@@ -808,11 +813,11 @@ HORIZONTAL
 CHOOSER
 922
 340
-1094
+1101
 385
 decision-strategy
 decision-strategy
-"fictitious play + empirical utility" "proportional probability"
+"fictitious play" "proportional probability"
 0
 
 SLIDER

@@ -483,7 +483,7 @@ expressway-distance
 expressway-distance
 1
 50
-24.0
+37.0
 1
 1
 km
@@ -498,7 +498,7 @@ street-distance
 street-distance
 1
 50
-26.0
+37.0
 1
 1
 km
@@ -566,24 +566,9 @@ HORIZONTAL
 
 SLIDER
 922
-251
-1094
-284
-petrol-emission-rate
-petrol-emission-rate
-0
-1
-0.06
-0.01
-1
-NIL
-HORIZONTAL
-
-SLIDER
-922
-293
+255
 1095
-326
+288
 acceleration-factor
 acceleration-factor
 0
@@ -677,7 +662,7 @@ erp-price
 erp-price
 0
 6
-1.0
+6.0
 1
 1
 $
@@ -803,8 +788,8 @@ SLIDER
 num-traffic-lights
 num-traffic-lights
 1
-10
-3.0
+20
+8.0
 1
 1
 NIL
@@ -812,13 +797,13 @@ HORIZONTAL
 
 CHOOSER
 922
-340
-1101
-385
+302
+1099
+347
 decision-strategy
 decision-strategy
 "fictitious play" "proportional probability"
-0
+1
 
 SLIDER
 12

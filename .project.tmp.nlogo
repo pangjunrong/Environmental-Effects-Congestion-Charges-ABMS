@@ -797,9 +797,9 @@ HORIZONTAL
 
 CHOOSER
 922
-297
-1095
-342
+302
+1099
+347
 decision-strategy
 decision-strategy
 "fictitious play" "proportional probability"
@@ -821,10 +821,10 @@ x
 HORIZONTAL
 
 SLIDER
-922
-372
-1097
-405
+920
+378
+1105
+411
 fp-price-sensitivity
 fp-price-sensitivity
 0
@@ -836,10 +836,10 @@ x
 HORIZONTAL
 
 TEXTBOX
-922
-350
-1072
-368
+920
+356
+1070
+374
 Fictitious Play Only
 12
 0.0

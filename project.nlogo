@@ -94,7 +94,6 @@ to price-sensitive-spawning
   ]
 
   if decision-strategy = "proportional probability" [
-    let probability random-float 1
     let adjusted-probability (erp-price / 6) * 0.90 + 0.05
     set decision random-float 1 > adjusted-probability
   ]
@@ -318,7 +317,7 @@ to-report run-fictitious-play
   foreach history-list [observation ->
     let utility-street ifelse-value average-speed-street = 0 [50] [average-speed-street]
     ; based on data provided by government, each dollar increases speed by 7%
-    let formula fp-price-sensitivity * 1.07 * erp-price
+    let formula 1 + (fp-price-sensitivity * 0.07 * erp-price)
     if erp-price = 0 [set formula 1]
     if observation > (utility-street * formula) [
       set cumulative-weight (cumulative-weight + 1)
@@ -797,9 +796,9 @@ HORIZONTAL
 
 CHOOSER
 922
-297
-1095
-342
+302
+1099
+347
 decision-strategy
 decision-strategy
 "fictitious play" "proportional probability"
@@ -822,14 +821,14 @@ HORIZONTAL
 
 SLIDER
 922
-372
-1097
-405
+433
+1107
+466
 fp-price-sensitivity
 fp-price-sensitivity
 0
 4
-2.1
+2.0
 0.1
 1
 x
@@ -837,9 +836,9 @@ HORIZONTAL
 
 TEXTBOX
 922
-350
+411
 1072
-368
+429
 Fictitious Play Only
 12
 0.0
